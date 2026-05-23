@@ -3,21 +3,24 @@
   import { browser } from '$app/environment';
 
   import { updateCursor } from '$lib/stores/cursor';
+  import { startPulseSystem } from '$lib/stores/pulse';
+
   import AbyssCursor from '$lib/components/AbyssCursor.svelte';
   import CursorTrail from '$lib/components/CursorTrail.svelte';
   import WaterPushText from '$lib/components/WaterPushText.svelte';
 
-  let intensity = $state(1.75);
-  let fade = $state(0.105);
-  let particleCount = $state(14);
-  let particleSize = $state(84);
-  let life = $state(78);
-  let spread = $state(36);
-  let blur = $state(2.4);
-  let opacity = $state(0.82);
-  let stretch = $state(3.05);
-  let thickness = $state(0.64);
+  let intensity = $state(1.35);
+  let fade = $state(0.16);
+  let particleCount = $state(6);
+  let particleSize = $state(68);
+  let life = $state(38);
+  let spread = $state(14);
+  let blur = $state(2.2);
+  let opacity = $state(0.78);
+  let stretch = $state(2.6);
+  let thickness = $state(0.46);
 
+  // 面板里保留备用色，但正式显示由 pulse store 自动生成。
   let colorCore = $state('#ff2a2a');
   let colorMid = $state('#2bdc62');
   let colorDeep = $state('#2358ff');
@@ -31,16 +34,6 @@
 
   let debugOpen = $state(false);
   let hasLoadedSettings = $state(false);
-
-  let motionTime = $state(0);
-  let pulseScale = $state(1);
-
-  const COLOR_CYCLE_ENABLED = true;
-  const PULSE_ENABLED = true;
-
-  // 不再缩到 0.5 以下，而是在 0.86 - 1.32 之间呼吸
-  const PULSE_STRENGTH = 0.5;
-  const PULSE_SPEED = 1.0;
 
   const SETTINGS_KEY = 'abyssal-trail-settings-v1';
 
@@ -121,7 +114,10 @@
   }
 
   function resetSavedSettings() {
-    if (browser) localStorage.removeItem(SETTINGS_KEY);
+    if (browser) {
+      localStorage.removeItem(SETTINGS_KEY);
+    }
+
     presetInk();
   }
 
@@ -163,30 +159,31 @@
   function saveTrailSettings() {
     if (!browser) return;
 
-    localStorage.setItem(
-      SETTINGS_KEY,
-      JSON.stringify({
-        intensity,
-        fade,
-        particleCount,
-        particleSize,
-        life,
-        spread,
-        blur,
-        opacity,
-        stretch,
-        thickness,
-        colorCore,
-        colorMid,
-        colorDeep,
-        shapeMode,
-        pointDensity,
-        headBulge,
-        tailThinness,
-        feather,
-        highlightStrength
-      })
-    );
+    const settings = {
+      intensity,
+      fade,
+      particleCount,
+      particleSize,
+      life,
+      spread,
+      blur,
+      opacity,
+      stretch,
+      thickness,
+
+      colorCore,
+      colorMid,
+      colorDeep,
+
+      shapeMode,
+      pointDensity,
+      headBulge,
+      tailThinness,
+      feather,
+      highlightStrength
+    };
+
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }
 
   $effect(() => {
@@ -202,9 +199,11 @@
     opacity;
     stretch;
     thickness;
+
     colorCore;
     colorMid;
     colorDeep;
+
     shapeMode;
     pointDensity;
     headBulge;
@@ -215,96 +214,17 @@
     saveTrailSettings();
   });
 
-  function hslToHex(h: number, s: number, l: number) {
-    h = ((h % 360) + 360) % 360;
-    s /= 100;
-    l /= 100;
-
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-    const m = l - c / 2;
-
-    let r = 0;
-    let g = 0;
-    let b = 0;
-
-    if (h < 60) {
-      r = c;
-      g = x;
-    } else if (h < 120) {
-      r = x;
-      g = c;
-    } else if (h < 180) {
-      g = c;
-      b = x;
-    } else if (h < 240) {
-      g = x;
-      b = c;
-    } else if (h < 300) {
-      r = x;
-      b = c;
-    } else {
-      r = c;
-      b = x;
-    }
-
-    const toHex = (v: number) =>
-      Math.round((v + m) * 255)
-        .toString(16)
-        .padStart(2, '0');
-
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
-
-  function getAnimatedColors() {
-    if (!COLOR_CYCLE_ENABLED) {
-      return {
-        core: colorCore,
-        mid: colorMid,
-        deep: colorDeep
-      };
-    }
-
-    // motionTime = 0:
-    // core 红，mid 绿，deep 蓝
-    // 平滑循环，不硬切。
-    const baseHue = (motionTime * 72) % 360;
-
-    return {
-      core: hslToHex(baseHue + 0, 94, 54),
-      mid: hslToHex(baseHue + 120, 86, 44),
-      deep: hslToHex(baseHue + 240, 96, 34)
-    };
-  }
-
-  function getPulseScale() {
-    if (!PULSE_ENABLED) return 1;
-
-    const raw = (Math.sin(motionTime * Math.PI * 2 * PULSE_SPEED) + 1) / 2;
-    const wave = raw * raw * (3 - 2 * raw);
-
-    // 0.86 -> 1.32 -> 0.86
-    // 肉眼明显，但不会消失。
-    return 0.86 + wave * PULSE_STRENGTH;
-  }
-
-  function getTrailPulseScale() {
-    // trail 只轻微呼吸，不要跟 cursor 一样夸张。
-    return 0.86 + (pulseScale - 0.86) * 0.38;
-  }
-
   function getTitleTextProps() {
-    const trailPulse = getTrailPulseScale();
-    const visualHead = particleSize * trailPulse * thickness * Math.max(1, headBulge);
-    const visualTail = particleSize * trailPulse * thickness * Math.max(0.22, tailThinness * 3.2);
+    const visualHead = particleSize * thickness * Math.max(1, headBulge);
+    const visualTail = particleSize * thickness * Math.max(0.22, tailThinness * 3.2);
 
     return {
       splitMode: 'word' as const,
-      headRadius: Math.round(visualHead * 2.2 * (0.96 + pulseScale * 0.14)),
-      tailLength: Math.round(Math.min(590, (life * 7.2 + particleSize * 1.35) * 1.02)),
-      tailRadius: Math.round(visualTail * 1.55 * (0.96 + pulseScale * 0.12)),
-      pushStrength: 1.28,
-      extraPush: 22,
+      headRadius: Math.round(visualHead * 2.2),
+      tailLength: Math.round(Math.min(590, life * 7.2 + particleSize * 1.35)),
+      tailRadius: Math.round(visualTail * 1.55),
+      pushStrength: 1.45,
+      extraPush: 30,
       tangent: 0.1,
       stiffness: 0.06,
       damping: 0.88,
@@ -312,22 +232,22 @@
       maxScaleBoost: 0.012,
       minOpacity: 0.9,
       maxBlur: 0.32,
-      maxDisplacement: 145
+      maxDisplacement: 170,
+      pulseInfluence: 0.32
     };
   }
 
   function getBodyTextProps() {
-    const trailPulse = getTrailPulseScale();
-    const visualHead = particleSize * trailPulse * thickness * Math.max(1, headBulge);
-    const visualTail = particleSize * trailPulse * thickness * Math.max(0.22, tailThinness * 3.2);
+    const visualHead = particleSize * thickness * Math.max(1, headBulge);
+    const visualTail = particleSize * thickness * Math.max(0.22, tailThinness * 3.2);
 
     return {
       splitMode: 'word' as const,
-      headRadius: Math.round(visualHead * 1.36 * (0.98 + pulseScale * 0.08)),
-      tailLength: Math.round(Math.min(440, (life * 5.8 + particleSize) * 1.01)),
-      tailRadius: Math.round(visualTail * 1.08 * (0.98 + pulseScale * 0.08)),
-      pushStrength: 0.72,
-      extraPush: 8,
+      headRadius: Math.round(visualHead * 1.36),
+      tailLength: Math.round(Math.min(440, life * 5.8 + particleSize)),
+      tailRadius: Math.round(visualTail * 1.08),
+      pushStrength: 0.95,
+      extraPush: 10,
       tangent: 0.06,
       stiffness: 0.065,
       damping: 0.9,
@@ -335,7 +255,8 @@
       maxScaleBoost: 0.004,
       minOpacity: 0.94,
       maxBlur: 0.18,
-      maxDisplacement: 62
+      maxDisplacement: 92,
+      pulseInfluence: 0.2
     };
   }
 
@@ -343,16 +264,7 @@
     loadTrailSettings();
     hasLoadedSettings = true;
 
-    let raf = 0;
-    const start = performance.now();
-
-    const tick = () => {
-      motionTime = (performance.now() - start) / 1000;
-      pulseScale = getPulseScale();
-      raf = requestAnimationFrame(tick);
-    };
-
-    raf = requestAnimationFrame(tick);
+    const stopPulse = startPulseSystem();
 
     const handlePointerMove = (event: PointerEvent) => {
       updateCursor(event.clientX, event.clientY);
@@ -362,7 +274,7 @@
 
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
-      cancelAnimationFrame(raf);
+      stopPulse();
     };
   });
 </script>
@@ -380,16 +292,16 @@
     {intensity}
     {fade}
     {particleCount}
-    particleSize={Math.round(particleSize * getTrailPulseScale())}
+    {particleSize}
     {life}
     {spread}
     {blur}
     {opacity}
     {stretch}
     {thickness}
-    colorCore={getAnimatedColors().core}
-    colorMid={getAnimatedColors().mid}
-    colorDeep={getAnimatedColors().deep}
+    {colorCore}
+    {colorMid}
+    {colorDeep}
     {shapeMode}
     {pointDensity}
     {headBulge}
@@ -398,7 +310,7 @@
     {highlightStrength}
   />
 
-  <AbyssCursor {pulseScale} colorCore={getAnimatedColors().core} />
+  <AbyssCursor />
 
   <section class="hero">
     <WaterPushText
@@ -558,7 +470,7 @@
       </div>
 
       <p class="hint">
-        当前颜色自动循环：core 从红色开始，mid 从绿色开始，deep 从蓝色开始。面板颜色是备用色。
+        颜色由 pulse store 自动循环：core 从红色起步，mid 从绿色起步，deep 从蓝色起步。文字碰撞体积仍然跟 pulse 联动。
       </p>
     </aside>
   {/if}

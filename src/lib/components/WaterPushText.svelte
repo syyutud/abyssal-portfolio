@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
   import { cursor } from '$lib/stores/cursor';
+  import { pulse } from '$lib/stores/pulse';
 
   let {
     text = '',
@@ -8,30 +9,25 @@
     className = '',
     splitMode = 'word',
 
-    // collider shape
     headRadius = 145,
     tailLength = 360,
     tailRadius = 42,
 
-    // displacement
     pushStrength = 1.45,
     extraPush = 22,
     tangent = 0.12,
 
-    // spring return
     stiffness = 0.075,
     damping = 0.84,
 
-    // visual motion
     maxRotate = 4,
     maxScaleBoost = 0.02,
 
-    // recovery visual
     minOpacity = 0.82,
     maxBlur = 0.7,
+    maxDisplacement = 120,
 
-    // safety for paragraph text
-    maxDisplacement = 120
+    pulseInfluence = 0.18
   }: {
     text?: string;
     tag?: 'h1' | 'h2' | 'p' | 'div' | 'span';
@@ -55,6 +51,8 @@
     minOpacity?: number;
     maxBlur?: number;
     maxDisplacement?: number;
+
+    pulseInfluence?: number;
   } = $props();
 
   type UnitToken = {
@@ -89,10 +87,12 @@
     active: false
   };
 
+  let pulseScale = 1;
+
   let raf = 0;
   let resizeTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const unsubscribe = cursor.subscribe((state) => {
+  const unsubscribeCursor = cursor.subscribe((state) => {
     pointer = {
       x: state.x,
       y: state.y,
@@ -101,6 +101,10 @@
       speed: state.speed,
       active: state.active
     };
+  });
+
+  const unsubscribePulse = pulse.subscribe((state) => {
+    pulseScale = state.pulseScale;
   });
 
   function buildTokens(input: string, mode: 'word' | 'letter'): UnitToken[] {
@@ -202,7 +206,13 @@
     const dirX = pointer.vx / dirLen;
     const dirY = pointer.vy / dirLen;
 
-    const dynamicTailLength = tailLength + clamp(speed * 3.2, 0, 180);
+    // 让 pulse 继续影响文字碰撞体积，但只在组件内部算。
+    const pulseRadiusScale = 1 + (pulseScale - 1) * pulseInfluence;
+    const pulseLengthScale = 1 + (pulseScale - 1) * (pulseInfluence * 0.65);
+
+    const dynamicTailLength =
+      (tailLength + clamp(speed * 3.2, 0, 180)) * pulseLengthScale;
+
     const headX = pointer.x;
     const headY = pointer.y;
     const tailX = pointer.x - dirX * dynamicTailLength;
@@ -226,37 +236,39 @@
           headY
         );
 
-        const localRadius =
+        const baseRadius =
           tailRadius + Math.pow(closest.t, 2.4) * (headRadius - tailRadius);
+
+        const localRadius = baseRadius * pulseRadiusScale;
 
         const dx = state.baseX - closest.x;
         const dy = state.baseY - closest.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 0.0001;
 
         if (dist < localRadius) {
-  const nx = dx / dist;
-  const ny = dy / dist;
+          const nx = dx / dist;
+          const ny = dy / dist;
 
-  const penetration = localRadius - dist;
-  const softFalloff = Math.pow(1 - dist / localRadius, 1.35);
-  const push = penetration * pushStrength + extraPush * softFalloff;
+          const penetration = localRadius - dist;
+          const softFalloff = Math.pow(1 - dist / localRadius, 1.35);
+          const push = penetration * pushStrength + extraPush * softFalloff;
 
-  tx += nx * push;
-  ty += ny * push;
+          tx += nx * push;
+          ty += ny * push;
 
-  tx += -ny * push * tangent;
-  ty += nx * push * tangent;
+          tx += -ny * push * tangent;
+          ty += nx * push * tangent;
 
-  const displacement = Math.sqrt(tx * tx + ty * ty);
+          const displacement = Math.sqrt(tx * tx + ty * ty);
 
-  if (displacement > maxDisplacement) {
-    const scale = maxDisplacement / displacement;
-    tx *= scale;
-    ty *= scale;
-  }
+          if (displacement > maxDisplacement) {
+            const scale = maxDisplacement / displacement;
+            tx *= scale;
+            ty *= scale;
+          }
 
-  influence = clamp(softFalloff + penetration / localRadius, 0, 1);
-}
+          influence = clamp(softFalloff + penetration / localRadius, 0, 1);
+        }
       }
 
       state.vx += (tx - state.x) * stiffness;
@@ -322,7 +334,8 @@
   });
 
   onDestroy(() => {
-    unsubscribe();
+    unsubscribeCursor();
+    unsubscribePulse();
   });
 </script>
 

@@ -1,14 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { cursor } from '$lib/stores/cursor';
-
-  let {
-    pulseScale = 1,
-    colorCore = '#e8fbff'
-  }: {
-    pulseScale?: number;
-    colorCore?: string;
-  } = $props();
+  import { pulse } from '$lib/stores/pulse';
 
   let x = 0;
   let y = 0;
@@ -18,7 +11,12 @@
   let active = false;
   let frame = 0;
 
-  const unsubscribe = cursor.subscribe((state) => {
+  let pulseScale = 1;
+  let colorCore = '#e8fbff';
+
+  let cursorEl: HTMLDivElement;
+
+  const unsubscribeCursor = cursor.subscribe((state) => {
     targetX = state.x;
     targetY = state.y;
     active = state.active;
@@ -28,35 +26,41 @@
     }
   });
 
+  const unsubscribePulse = pulse.subscribe((state) => {
+    pulseScale = state.pulseScale;
+    colorCore = state.core;
+  });
+
   onMount(() => {
     const tick = () => {
-      x += (targetX - x) * 0.72;
-      y += (targetY - y) * 0.72;
+      x = targetX;
+      y = targetY;
+
+      if (cursorEl) {
+        cursorEl.style.setProperty('--core-color', colorCore);
+        cursorEl.style.setProperty('--pulse', `${pulseScale}`);
+        cursorEl.style.transform = `
+          translate3d(${x}px, ${y}px, 0)
+          translate(-50%, -50%)
+          rotate(${angle}rad)
+        `;
+      }
+
       frame = requestAnimationFrame(tick);
     };
 
     frame = requestAnimationFrame(tick);
+
     return () => cancelAnimationFrame(frame);
   });
 
   onDestroy(() => {
-    unsubscribe();
+    unsubscribeCursor();
+    unsubscribePulse();
   });
 </script>
 
-<div
-  class:active
-  class="abyss-cursor"
-  style="
-    --core-color: {colorCore};
-    --pulse: {pulseScale};
-    transform:
-      translate3d({x}px, {y}px, 0)
-      translate(-50%, -50%)
-      rotate({angle}rad);
-  "
-  aria-hidden="true"
->
+<div bind:this={cursorEl} class:active class="abyss-cursor" aria-hidden="true">
   <div class="breath"></div>
   <div class="core"></div>
   <div class="front-glow"></div>
@@ -67,8 +71,8 @@
     position: fixed;
     left: 0;
     top: 0;
-    width: 96px;
-    height: 68px;
+    width: 120px;
+    height: 86px;
     pointer-events: none;
     z-index: 90;
     opacity: 0;
@@ -85,10 +89,10 @@
     position: absolute;
     left: 48%;
     top: 50%;
-    width: 92px;
-    height: 56px;
+    width: 112px;
+    height: 72px;
     border-radius: 999px;
-    transform: translate(-50%, -50%) scale(calc(0.74 + var(--pulse) * 0.46));
+    transform: translate(-50%, -50%) scale(calc(0.72 + var(--pulse) * 0.46));
     background:
       radial-gradient(
         ellipse at 62% 50%,
@@ -100,16 +104,16 @@
         color-mix(in srgb, var(--core-color) 18%, transparent),
         transparent 72%
       );
-    filter: blur(16px);
-    opacity: 0.72;
+    filter: blur(18px);
+    opacity: 0.82;
   }
 
   .core {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: 54px;
-    height: 34px;
+    width: 68px;
+    height: 44px;
     transform: translate(-50%, -50%) scale(calc(0.9 + var(--pulse) * 0.12));
     border-radius: 62% 48% 48% 62%;
     background:
@@ -140,11 +144,11 @@
     background:
       radial-gradient(
         circle,
-        rgba(255, 255, 255, 0.18),
-        color-mix(in srgb, var(--core-color) 34%, transparent) 34%,
+        rgba(255, 255, 255, 0.16),
+        color-mix(in srgb, var(--core-color) 30%, transparent) 34%,
         transparent 78%
       );
     filter: blur(5px);
-    opacity: 0.58;
+    opacity: 0.30;
   }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { cursor } from '$lib/stores/cursor';
+  import { pulse } from '$lib/stores/pulse';
 
   let {
     intensity = 1.6,
@@ -53,13 +54,25 @@
   let lastMouseY = 0;
   let active = false;
 
+  let pulseTrailScale = 1;
+  let animatedCore = colorCore;
+  let animatedMid = colorMid;
+  let animatedDeep = colorDeep;
+
   const points: TrailPoint[] = [];
   const mist: Mist[] = [];
 
-  const unsubscribe = cursor.subscribe((state) => {
+  const unsubscribeCursor = cursor.subscribe((state) => {
     mouseX = state.x;
     mouseY = state.y;
     active = state.active;
+  });
+
+  const unsubscribePulse = pulse.subscribe((state) => {
+    pulseTrailScale = state.trailScale;
+    animatedCore = state.core;
+    animatedMid = state.mid;
+    animatedDeep = state.deep;
   });
 
   function clamp(value: number, min: number, max: number) {
@@ -136,7 +149,7 @@
           vy: Math.sin(a) * 0.08 + (Math.random() - 0.5) * 0.14,
           age: 0,
           life: clamp(life * 0.55, 10, 32),
-          size: particleSize * 0.16 + Math.random() * particleSize * 0.16
+          size: particleSize * pulseTrailScale * 0.16 + Math.random() * particleSize * 0.16
         });
       }
     }
@@ -144,7 +157,7 @@
     lastMouseX = mouseX;
     lastMouseY = mouseY;
 
-    const maxPoints = clamp(Math.floor(life * 0.85), 14, 42);
+    const maxPoints = clamp(Math.floor(life * 0.62), 12, 30);
 
     while (points.length > maxPoints) points.shift();
     while (mist.length > 28) mist.shift();
@@ -152,21 +165,22 @@
 
   function getWidthFromT(t: number) {
     const smoothT = t * t * (3 - 2 * t);
+    const size = particleSize * pulseTrailScale;
 
     if (shapeMode === 'droplet') {
-      return particleSize * (tailThinness + Math.pow(smoothT, 2.6) * headBulge) * thickness;
+      return size * (tailThinness + Math.pow(smoothT, 2.6) * headBulge) * thickness;
     }
 
     if (shapeMode === 'ink') {
       return (
-        particleSize *
+        size *
         (tailThinness * 1.8 + Math.pow(smoothT, 1.8) * (headBulge * 0.9)) *
         thickness
       );
     }
 
     return (
-      particleSize *
+      size *
       (tailThinness * 1.2 + Math.pow(smoothT, 1.35) * (headBulge * 0.58)) *
       thickness
     );
@@ -202,7 +216,7 @@
     if (raw.length < 2) return raw.map((p) => ({ x: p.x, y: p.y }));
 
     const result: { x: number; y: number }[] = [];
-    const segments = clamp(Math.round(pointDensity * 1.35), 3, 7);
+    const segments = clamp(Math.round(pointDensity * 0.95), 2, 5);
 
     for (let i = 0; i < raw.length - 1; i += 1) {
       const p0 = raw[Math.max(0, i - 1)];
@@ -219,9 +233,9 @@
     const last = raw[raw.length - 1];
     result.push({ x: last.x, y: last.y });
 
-    if (result.length > 140) {
+    if (result.length > 90) {
       const reduced: { x: number; y: number }[] = [];
-      const step = Math.ceil(result.length / 140);
+      const step = Math.ceil(result.length / 90);
 
       for (let i = 0; i < result.length; i += step) {
         reduced.push(result[i]);
@@ -280,29 +294,29 @@
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
 
-    ctx.filter = `blur(${clamp(blur * 0.95, 0, 1.8)}px)`;
-    strokeSmoothLine(smooth, 2.35 + feather * 0.45, 0.04, colorCore, colorDeep, 2);
+    ctx.filter = `blur(${clamp(blur * 0.75, 0, 1.0)}px)`;
+    strokeSmoothLine(smooth, 2.35 + feather * 0.45, 0.04, animatedCore, animatedDeep, 2);
 
-    ctx.filter = `blur(${clamp(blur * 0.55, 0, 1.1)}px)`;
-    strokeSmoothLine(smooth, 1.55, 0.075, colorCore, colorMid, 1);
+    ctx.filter = `blur(${clamp(blur * 0.38, 0, 0.7)}px)`;
+    strokeSmoothLine(smooth, 1.55, 0.095, animatedCore, animatedMid, 1);
 
-    ctx.filter = `blur(${clamp(blur * 0.18, 0, 0.45)}px)`;
-    strokeSmoothLine(smooth, 0.9, 0.095, colorCore, colorMid, 1);
+    ctx.filter = `blur(${clamp(blur * 0.12, 0, 0.28)}px)`;
+    strokeSmoothLine(smooth, 0.9, 0.11, animatedCore, animatedMid, 1);
 
     if (highlightStrength > 0.001) {
       ctx.globalCompositeOperation = 'lighter';
       ctx.filter = `blur(${clamp(blur * 0.08, 0, 0.22)}px)`;
-      strokeSmoothLine(smooth, 0.18, highlightStrength * 0.5, colorCore, colorCore, 2);
+      strokeSmoothLine(smooth, 0.18, highlightStrength * 0.5, animatedCore, animatedCore, 2);
     }
 
     if (shapeMode === 'droplet' || shapeMode === 'ink') {
       const headWidth = getWidthFromT(1) * (shapeMode === 'droplet' ? 1.65 : 1.25);
 
       const g = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, headWidth * 1.85);
-      g.addColorStop(0, rgba(colorCore, 0.18 * opacity * intensity));
-      g.addColorStop(0.34, rgba(colorMid, 0.12 * opacity * intensity));
-      g.addColorStop(0.76, rgba(colorDeep, 0.045 * opacity));
-      g.addColorStop(1, rgba(colorDeep, 0));
+      g.addColorStop(0, rgba(animatedCore, 0.18 * opacity * intensity));
+      g.addColorStop(0.34, rgba(animatedMid, 0.12 * opacity * intensity));
+      g.addColorStop(0.76, rgba(animatedDeep, 0.045 * opacity));
+      g.addColorStop(1, rgba(animatedDeep, 0));
 
       ctx.filter = `blur(${clamp(blur * 0.55, 0, 1.1)}px)`;
       ctx.fillStyle = g;
@@ -328,10 +342,10 @@
       const size = m.size * (1 + t * stretch * 0.35);
 
       const g = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, size);
-      g.addColorStop(0, rgba(colorCore, 0.026 * a * opacity));
-      g.addColorStop(0.42, rgba(colorMid, 0.044 * a * opacity));
-      g.addColorStop(0.82, rgba(colorDeep, 0.032 * a * opacity));
-      g.addColorStop(1, rgba(colorDeep, 0));
+      g.addColorStop(0, rgba(animatedCore, 0.026 * a * opacity));
+      g.addColorStop(0.42, rgba(animatedMid, 0.044 * a * opacity));
+      g.addColorStop(0.82, rgba(animatedDeep, 0.032 * a * opacity));
+      g.addColorStop(1, rgba(animatedDeep, 0));
 
       ctx.fillStyle = g;
       ctx.beginPath();
@@ -394,7 +408,8 @@
   });
 
   onDestroy(() => {
-    unsubscribe();
+    unsubscribeCursor();
+    unsubscribePulse();
   });
 </script>
 
